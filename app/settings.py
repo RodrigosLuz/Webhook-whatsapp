@@ -77,4 +77,6 @@ def load_settings(env_name: str | None = None) -> dict:
         except Exception:
             settings["TENANT_REGISTRY"] = {}
 
+    settings.setdefault("SQLITE_PATH", "data/app.db")
+
     return settings

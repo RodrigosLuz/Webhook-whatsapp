@@ -69,6 +69,16 @@ def run_simulation():
     # Descobre phone_number_id (tenta extrair do payload)
     pnid = _get_phone_number_id_from_payload(payload)
 
+    # [NOVO] — cria/atualiza a sessão como o webhook faz (para que estados funcionem)
+    sm = current_app.config.get("SESSION_MANAGER")
+    if sm and pnid:
+        for e in events:
+            if e.get("type") == "text":
+                frm = str(e.get("from") or "")
+                if frm:
+                    # assinatura com keywords funciona nas duas versões do SessionManager
+                    sm.touch(phone=frm, tenant=str(pnid), default_state="idle")
+
     # Resolve tenant
     tenant_fn = registry.resolve(pnid, current_app.config) if pnid else None
 

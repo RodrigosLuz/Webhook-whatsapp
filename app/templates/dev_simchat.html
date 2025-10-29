@@ -72,14 +72,24 @@
       chat.scrollTop = chat.scrollHeight;
     }
 
+    // NOVO: limpa o campo e mantém foco para a próxima digitação
+    function clearInput() {
+      const i = document.getElementById('text_input');
+      if (i) { i.value = ''; i.focus(); }
+    }
+
     async function sendSimulate() {
       const phone_number_id = document.getElementById('phone_number_id').value.trim();
       const from_number = document.getElementById('from_number').value.trim();
-      const text = document.getElementById('text_input').value.trim();
+      const inputEl = document.getElementById('text_input');
+      const text = inputEl.value.trim();
       if (!text) return alert('Digite algo.');
 
       // mostra inbound local
       pushBubble('in', text, 'from: ' + from_number);
+
+      // limpa o campo para a próxima mensagem (NOVO)
+      clearInput();
 
       const payload = { phone_number_id, from: from_number, text };
 
@@ -99,7 +109,6 @@
           pushBubble('out', '(nenhuma ação retornada)', 'source: ' + data.source);
         } else {
           for (const a of actions) {
-            // tenta formatar texto ou template
             const txt = (a.text && (typeof a.text === 'string' ? a.text : JSON.stringify(a.text))) ||
                         (a.template && JSON.stringify(a.template)) ||
                         JSON.stringify(a);
@@ -115,11 +124,23 @@
       // envia o payload direto para / (webhook) como se fosse a meta
       const phone_number_id = document.getElementById('phone_number_id').value.trim();
       const from_number = document.getElementById('from_number').value.trim();
-      const text = document.getElementById('text_input').value.trim();
+      const inputEl = document.getElementById('text_input');
+      const text = inputEl.value.trim();
       if (!text) return alert('Digite algo.');
 
+      // limpa logo para a próxima digitação (NOVO)
+      clearInput();
+
       const payload = {
-        entry: [{ changes: [{ value: { messaging_product: 'whatsapp', messages: [{ from: from_number, type: 'text', text: { body: text } }], metadata: { phone_number_id } } }] }]
+        entry: [{
+          changes: [{
+            value: {
+              messaging_product: 'whatsapp',
+              messages: [{ from: from_number, type: 'text', text: { body: text } }],
+              metadata: { phone_number_id }
+            }
+          }]
+        }]
       };
 
       try {
@@ -157,6 +178,9 @@
 
     function clearChat() {
       document.getElementById('chat').innerHTML = '';
+      // mantém o foco no input após limpar o chat (conveniência)
+      const i = document.getElementById('text_input');
+      if (i) i.focus();
     }
   </script>
 </body>
