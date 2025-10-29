@@ -1,0 +1,163 @@
+<!-- app/templates/dev_simchat.html -->
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Simulador WhatsApp - Dev</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 12px; background:#f7f7f7; }
+    .container { max-width:900px; margin:0 auto; }
+    .controls { display:flex; gap:8px; margin-bottom:10px; }
+    .controls input { padding:8px; flex:1; }
+    .controls button { padding:8px 12px; }
+    .chat { background:#fff; border:1px solid #ddd; padding:12px; height:60vh; overflow:auto; }
+    .bubble { max-width:70%; padding:10px; margin:8px 0; border-radius:10px; }
+    .in { background:#eee; align-self:flex-start; }
+    .out { background:#0b76ff; color:white; align-self:flex-end; }
+    .row { display:flex; flex-direction:column; }
+    .meta { font-size:11px; color:#666; margin-top:6px; }
+    .footer { margin-top:8px; display:flex; gap:8px; }
+    .small { font-size:13px; color:#444; }
+    .history-item { border-top:1px dashed #eee; padding-top:8px; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Simulador WhatsApp (DEV)</h2>
+
+    <div class="small">Use para simular inbound e ver as ações que o tenant devolveria. Rota dev: <code>/dev/simulate</code></div>
+
+    <div style="margin-top:10px" class="row">
+      <div class="controls">
+        <input id="phone_number_id" placeholder="Phone Number ID (tenant)" value="222222222222222" />
+        <input id="from_number" placeholder="From (usuário)" value="5561999999999" />
+      </div>
+
+      <input id="text_input" placeholder="Digite a mensagem..." style="padding:8px; margin-bottom:8px" onkeydown="if(event.key==='Enter'){sendSimulate()}"/>
+
+      <div class="footer">
+        <button onclick="sendSimulate()">Simular inbound</button>
+        <button onclick="sendToWebhook()">Enviar direto para / (webhook)</button>
+        <button onclick="fetchHistory()">Carregar histórico</button>
+        <button onclick="clearChat()">Limpar chat</button>
+      </div>
+
+      <div id="chat" class="chat" aria-live="polite"></div>
+
+      <h4>Histórico (dev)</h4>
+      <div id="history"></div>
+    </div>
+  </div>
+
+  <script>
+    function el(tag, cls, text) {
+      const d = document.createElement(tag);
+      if (cls) d.className = cls;
+      if (text !== undefined) d.textContent = text;
+      return d;
+    }
+
+    function pushBubble(dir, text, meta) {
+      const chat = document.getElementById('chat');
+      const wrapper = el('div', 'bubble ' + (dir === 'in' ? 'in' : 'out'));
+      wrapper.innerHTML = '<div>' + (text || '') + '</div>';
+      const metaDiv = el('div', 'meta', (meta || ''));
+      wrapper.appendChild(metaDiv);
+      const outer = el('div');
+      outer.style.display = 'flex';
+      outer.style.justifyContent = dir === 'in' ? 'flex-start' : 'flex-end';
+      outer.appendChild(wrapper);
+      chat.appendChild(outer);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    async function sendSimulate() {
+      const phone_number_id = document.getElementById('phone_number_id').value.trim();
+      const from_number = document.getElementById('from_number').value.trim();
+      const text = document.getElementById('text_input').value.trim();
+      if (!text) return alert('Digite algo.');
+
+      // mostra inbound local
+      pushBubble('in', text, 'from: ' + from_number);
+
+      const payload = { phone_number_id, from: from_number, text };
+
+      try {
+        const res = await fetch('/dev/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          pushBubble('out', 'Erro: resposta inválida', '');
+          return;
+        }
+        const actions = data.actions || [];
+        if (actions.length === 0) {
+          pushBubble('out', '(nenhuma ação retornada)', 'source: ' + data.source);
+        } else {
+          for (const a of actions) {
+            // tenta formatar texto ou template
+            const txt = (a.text && (typeof a.text === 'string' ? a.text : JSON.stringify(a.text))) ||
+                        (a.template && JSON.stringify(a.template)) ||
+                        JSON.stringify(a);
+            pushBubble('out', txt, 'to: ' + (a.to || '(unknown)'));
+          }
+        }
+      } catch (err) {
+        pushBubble('out', 'Erro ao chamar /dev/simulate: ' + err, '');
+      }
+    }
+
+    async function sendToWebhook() {
+      // envia o payload direto para / (webhook) como se fosse a meta
+      const phone_number_id = document.getElementById('phone_number_id').value.trim();
+      const from_number = document.getElementById('from_number').value.trim();
+      const text = document.getElementById('text_input').value.trim();
+      if (!text) return alert('Digite algo.');
+
+      const payload = {
+        entry: [{ changes: [{ value: { messaging_product: 'whatsapp', messages: [{ from: from_number, type: 'text', text: { body: text } }], metadata: { phone_number_id } } }] }]
+      };
+
+      try {
+        const res = await fetch('/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const textResp = await res.text();
+        pushBubble('out', 'POST / enviado (verifique logs). Resposta: ' + textResp.slice(0, 200), '');
+      } catch (err) {
+        pushBubble('out', 'Erro enviando para /: ' + err, '');
+      }
+    }
+
+    async function fetchHistory() {
+      try {
+        const res = await fetch('/dev/history');
+        const data = await res.json();
+        const container = document.getElementById('history');
+        container.innerHTML = '';
+        if (!data.ok) { container.innerText = 'erro ao carregar histórico'; return; }
+        for (const it of data.recent) {
+          const div = document.createElement('div');
+          div.className = 'history-item';
+          div.innerHTML = '<div><strong>#' + it.id + '</strong> - ' + it.ts + '</div>' +
+                          '<div class="small">inbound: ' + JSON.stringify(it.inbound_payload) + '</div>' +
+                          '<div class="small">actions: ' + JSON.stringify(it.actions) + '</div>';
+          container.appendChild(div);
+        }
+      } catch (err) {
+        document.getElementById('history').innerText = 'Erro: ' + err;
+      }
+    }
+
+    function clearChat() {
+      document.getElementById('chat').innerHTML = '';
+    }
+  </script>
+</body>
+</html>
