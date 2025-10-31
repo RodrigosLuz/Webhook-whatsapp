@@ -1,0 +1,135 @@
+:root{
+  --green:#075E54;
+  --bg:#ECE5DD;
+  --in:#FFFFFF;
+  --out:#DCF8C6;
+  --muted:#667781;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--bg);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,Helvetica,sans-serif
+}
+
+/* TOPBAR */
+.topbar{
+  background:var(--green);
+  color:#fff;
+  padding:10px 12px;
+  display:flex;
+  gap:12px;
+  align-items:center
+}
+.topbar h1{
+  font-size:16px;
+  margin:0 10px 0 0;
+  font-weight:700
+}
+.topbar input{
+  height:32px;
+  border-radius:6px;
+  border:0;
+  padding:0 10px;
+  min-width:280px;
+  outline:none
+}
+
+/* Buttons */
+.btn{
+  height:32px;
+  border-radius:8px;
+  border:0;
+  padding:0 12px;
+  font-weight:600;
+  cursor:pointer
+}
+.btn.gray{background:#e7edf3}
+.btn.green{background:#08c19d;color:#fff}
+.btn.red{background:#ef4444;color:#fff}
+
+/* Hint bar */
+.hint{
+  background:#0f5132;
+  color:#d1e7dd;
+  padding:6px 12px;
+  font-size:12px
+}
+
+/* Layout */
+.wrap{
+  height:calc(100vh - 110px);
+  display:flex;
+  flex-direction:column
+}
+.chat{
+  flex:1;
+  overflow:auto;
+  padding:18px 24px
+}
+
+/* Bubbles */
+.row{
+  display:flex;
+  margin:10px 0;
+  width:100%
+}
+.row.in{justify-content:flex-start}
+.row.out{justify-content:flex-end}
+
+.bubble{
+  max-width:min(76%,820px);
+  padding:10px 36px 18px 12px; /* espaço p/ timestamp dentro */
+  border-radius:10px;
+  position:relative;
+  line-height:1.35;
+  white-space:pre-wrap;
+  word-wrap:break-word
+}
+.in .bubble{background:var(--in)}
+.out .bubble{background:var(--out)}
+.ts{
+  position:absolute;
+  right:8px;
+  bottom:6px;
+  color:var(--muted);
+  font-size:11px
+}
+
+/* Footer input */
+.footer{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  padding:10px;
+  background:#f3f3f3;
+  border-top:1px solid #e7e7e7
+}
+#msg{
+  flex:1;
+  height:44px;
+  border-radius:22px;
+  border:2px solid #cfd4d9;
+  padding:0 16px;
+  outline:none;
+  background:#fff
+}
+.btn.round{
+  height:44px;
+  border-radius:22px;
+  padding:0 16px
+}
+
+/* Status pill */
+.status-pill{
+  background:#ffffff22;
+  border:1px solid #ffffff55;
+  color:#fff;
+  border-radius:999px;
+  padding:4px 10px;
+  font-size:12px
+}
+.status-pill.off{
+  background:#00000020;
+  border-color:#00000026
+}
