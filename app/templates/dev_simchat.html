@@ -15,11 +15,16 @@
     <button id="btnConnect" class="btn gray">Conectar</button>
     <button id="btnHistory" class="btn gray">Carregar histórico</button>
     <button id="btnClear" class="btn gray">Limpar chat</button>
+    <!-- Botão SIMULAR movido para a barra superior -->
+    <button id="btnSimulate" class="btn green" title="Trocar para modo simulado (sem webhook)">
+      Simular (sem webhook)
+    </button>
     <span id="pill" class="status-pill off">Desconectado</span>
   </div>
 
   <div class="hint">
-    Tudo que o <strong>webhook</strong> receber (inbound/status) e tudo que for <strong>enviado</strong> (outbound) aparece aqui em tempo real. O delay entre mensagens é respeitado visualmente.
+    Tudo que o <strong>webhook</strong> receber (inbound/status) e tudo que for <strong>enviado</strong> (outbound) aparece aqui em tempo real.
+    O delay entre mensagens é respeitado visualmente.
   </div>
 
   <div class="wrap">
@@ -28,7 +33,7 @@
     <div class="footer">
       <input id="msg" placeholder="Digite a mensagem…" />
       <button id="btnSend" class="btn round green">Enviar</button>
-      <button id="btnSimulate" class="btn round green" title="Trocar para modo simulado (sem webhook)">Simular (sem webhook)</button>
+      <!-- Botão SIMULAR removido da área inferior -->
     </div>
   </div>
 
