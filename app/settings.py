@@ -65,6 +65,10 @@ def load_settings(env_name: str | None = None) -> dict:
 
         # Segurança de /send (token interno opcional)
         "INTERNAL_SEND_TOKEN": os.getenv("INTERNAL_SEND_TOKEN"),
+
+        # Delay global (segundos) entre mensagens outbound sequenciais.
+        # Pode ser sobrescrito por ação com a chave "delay" (ver router.make_*_action)
+        "OUTGOING_DELAY_SECONDS": int(os.getenv("OUTGOING_DELAY_SECONDS", "0")),
     }
 
     # Registry opcional em JSON (pode ser carregado depois em tenants/registry)

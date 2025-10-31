@@ -71,6 +71,14 @@ def _looks_like_name(s: str) -> bool:
     return bool(re.search(r"[A-Za-zÀ-ÖØ-öø-ÿ]", s)) and len(s) >= 2
 
 
+# [NOVO] delay padrão por settings
+def _default_delay(settings: Dict[str, Any]) -> int:
+    try:
+        return int(settings.get("OUTGOING_DELAY_SECONDS") or 0)
+    except Exception:
+        return 0
+
+
 # [NOVO] --------- helpers de sessão (compatíveis com as 2 versões do SessionManager) ---------
 def _get_sm(settings: Dict[str, Any]):
     """Pega o SessionManager in-memory da app (configurado em app/__init__.py)."""
@@ -178,9 +186,10 @@ def respond(events: List[Dict[str, Any]], settings: Dict[str, Any]) -> List[Dict
         nome = ctx.get("nome")
         profile_name = ctx.get("profile_name")  # [NOVO]
 
-        # 1) Cumprimentos (mantido)
+        # 1) Cumprimentos (mantido + envia menu com delay padrão)
         if txt_norm in {"oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"}:
             actions.append(make_text_action(to, _greeting()))
+            actions.append(make_text_action(to, _menu_text(nome), delay=_default_delay(settings)))
             # estado não muda
             continue
 
@@ -252,7 +261,7 @@ def respond(events: List[Dict[str, Any]], settings: Dict[str, Any]) -> List[Dict
                 _set_ctx(sm, tenant, to, {"nome": profile_name})
                 _set_state(sm, tenant, to, "idle")
                 actions.append(make_text_action(to, f"Perfeito, {profile_name}!"))
-                actions.append(make_text_action(to, _menu_text(profile_name)))
+                actions.append(make_text_action(to, _menu_text(profile_name), delay=_default_delay(settings)))
                 continue
 
             # se não foi "não" explícito e parece um nome, assume o nome dito
@@ -261,7 +270,7 @@ def respond(events: List[Dict[str, Any]], settings: Dict[str, Any]) -> List[Dict
                 _set_ctx(sm, tenant, to, {"nome": nome_capturado})
                 _set_state(sm, tenant, to, "idle")
                 actions.append(make_text_action(to, f"Ótimo! Prazer, {nome_capturado}."))
-                actions.append(make_text_action(to, _menu_text(nome_capturado)))
+                actions.append(make_text_action(to, _menu_text(nome_capturado), delay=_default_delay(settings)))
                 continue
 
             # não entendeu → pede novamente
@@ -282,7 +291,7 @@ def respond(events: List[Dict[str, Any]], settings: Dict[str, Any]) -> List[Dict
             actions.append(make_text_action(to, f"Prazer, {nome_capturado}! Posso te ajudar com um orçamento."))  # mantém fluxo original
             # volta p/ idle e reoferece menu com nome
             _set_state(sm, tenant, to, "idle")
-            actions.append(make_text_action(to, _menu_text(nome_capturado)))
+            actions.append(make_text_action(to, _menu_text(nome_capturado), delay=_default_delay(settings)))
             continue
 
         # [NOVO] 7) Descrição de suporte
@@ -290,13 +299,13 @@ def respond(events: List[Dict[str, Any]], settings: Dict[str, Any]) -> List[Dict
             _set_ctx(sm, tenant, to, {"last_support_desc": txt})
             actions.append(make_text_action(to, "Obrigado! Registrei sua descrição. Em breve retornaremos."))
             _set_state(sm, tenant, to, "idle")
-            actions.append(make_text_action(to, _menu_text(nome)))
+            actions.append(make_text_action(to, _menu_text(nome), delay=_default_delay(settings)))
             continue
 
         # 8) (Opcional) Atalho simples de agendamento (mantido como exemplo, sem estado)
         if re.search(r"\bagend(ar|o)\b", txt_norm):
             actions.append(make_text_action(to, "Aqui está o link para sugerir um horário: https://calendar.google.com/"))
-            actions.append(make_text_action(to, "Quando concluir, me avise aqui que eu confirmo."))
+            actions.append(make_text_action(to, "Quando concluir, me avise aqui que eu confirmo.", delay=_default_delay(settings)))
             continue
 
         # 9) Fallback (mantido + [ALTERADO] com dica do menu)

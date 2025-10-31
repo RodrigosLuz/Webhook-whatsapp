@@ -8,7 +8,7 @@ eventos normalizados (ver normalizer.py) e devolve uma lista de ações.
 
 Formato das ações:
 - Mensagem de texto:
-  {"to": "5561999999999", "text": "Olá!"}
+  {"to": "5561999999999", "text": "Olá!", "delay": 5}  # delay opcional em segundos
 
 - Mensagem de template:
   {
@@ -17,7 +17,8 @@ Formato das ações:
       "name": "hello_world",
       "language": {"code": "pt_BR"},
       "components": [...]
-    }
+    },
+    "delay": 3  # opcional
   }
 """
 
@@ -56,12 +57,24 @@ def mask_phone(p: str | None) -> str | None:
 # ------------------------------------------------------------
 # Builders de ações (facilitam os testes e a leitura)
 # ------------------------------------------------------------
-def make_text_action(to: str, body: str) -> Action:
-    return {"to": to, "text": body}
+def make_text_action(to: str, body: str, delay: int | None = None) -> Action:
+    a: Action = {"to": to, "text": body}
+    if delay is not None:
+        try:
+            a["delay"] = int(delay)
+        except Exception:
+            pass
+    return a
 
 
-def make_template_action(to: str, template: Dict[str, Any]) -> Action:
-    return {"to": to, "template": template}
+def make_template_action(to: str, template: Dict[str, Any], delay: int | None = None) -> Action:
+    a: Action = {"to": to, "template": template}
+    if delay is not None:
+        try:
+            a["delay"] = int(delay)
+        except Exception:
+            pass
+    return a
 
 
 # ------------------------------------------------------------

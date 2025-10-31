@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import uuid
+import threading
+import time
 from flask import Blueprint, request, jsonify, current_app
 
 from app.logging import get_logger
@@ -89,6 +91,91 @@ def _log_statuses_and_persist(change_value: dict, db_path: str) -> None:
                     "delivery.status",
                     extra={**base, "conversation": st.get("conversation"), "pricing": st.get("pricing")},
                 )
+
+# -----------------------
+# Envio assíncrono com delay
+# -----------------------
+def _dispatch_actions_async(app, pnid: str | None, actions: list[dict]) -> None:
+    """
+    Processa ações em uma thread separada, respeitando:
+      - delay por ação (a.get("delay"))
+      - delay global OUTGOING_DELAY_SECONDS (entre mensagens, quando não há delay por ação)
+    Persiste as mensagens outbound como o handler original fazia.
+    """
+    def _worker():
+        with app.app_context():
+            db_path = app.config.get("SQLITE_PATH", "data/app.db")
+            try:
+                default_delay = int(app.config.get("OUTGOING_DELAY_SECONDS") or 0)
+            except Exception:
+                default_delay = 0
+
+            for idx, a in enumerate(actions):
+                to = a.get("to")
+                if not to:
+                    continue
+
+                # Calcula o delay ANTES desta mensagem:
+                # 1) delay específico da ação (se definido)
+                # 2) senão, aplica delay global apenas a partir da 2ª mensagem
+                try:
+                    delay_s = a.get("delay")
+                    delay_s = int(delay_s) if delay_s is not None else (default_delay if idx > 0 else 0)
+                except Exception:
+                    delay_s = default_delay if idx > 0 else 0
+
+                if delay_s and delay_s > 0:
+                    logger.info("msg.delay_wait", extra={"to": mask_phone(to), "seconds": delay_s, "index": idx})
+                    time.sleep(delay_s)
+
+                try:
+                    if "template" in a:
+                        res = send_template(to, a["template"], phone_number_id=pnid)
+                        kind = "template"
+                    else:
+                        res = send_text(to, a.get("text", ""), phone_number_id=pnid)
+                        kind = "text"
+
+                    # tenta capturar wamid do retorno real
+                    ext_id = None
+                    try:
+                        msgs = (res or {}).get("messages") or []
+                        if msgs and isinstance(msgs, list) and msgs[0].get("id"):
+                            ext_id = msgs[0]["id"]
+                    except Exception:
+                        ext_id = None
+
+                    insert_message(
+                        db_path,
+                        id=str(uuid.uuid4()),
+                        tenant_id=str(pnid or "unknown"),
+                        phone=str(to),
+                        direction="outbound",
+                        text=a.get("text") if "text" in a else None,
+                        attachments_meta=a.get("template") if "template" in a else None,
+                        external_msg_id=ext_id,
+                        status="sent" if not (res or {}).get("dry_run") else None,
+                        raw_payload=(res if not (res or {}).get("dry_run") else None),
+                        created_at=iso_now(),
+                    )
+
+                    logger.info(
+                        "msg.out",
+                        extra={
+                            "to": mask_phone(to),
+                            "kind": kind,
+                            "has_external_id": bool(ext_id),
+                            "dry_run": bool(current_app.config.get("DRY_RUN", False)),
+                        },
+                    )
+                except Exception as e:
+                    logger.exception(
+                        "msg.out_error",
+                        extra={"to": mask_phone(a.get("to")), "kind": ("template" if "template" in a else "text"), "error": str(e)},
+                    )
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
 
 @webhook.get("/")
 def verify():
@@ -190,57 +277,8 @@ def receive():
             },
         )
 
-        # 4) Envia e persiste outbound
-        for a in actions:
-            to = a.get("to")
-            if not to:
-                continue
-            try:
-                if "template" in a:
-                    res = send_template(to, a["template"], phone_number_id=pnid)
-                    kind = "template"
-                else:
-                    res = send_text(to, a.get("text", ""), phone_number_id=pnid)
-                    kind = "text"
-
-                # tenta capturar wamid do retorno real
-                ext_id = None
-                try:
-                    msgs = (res or {}).get("messages") or []
-                    if msgs and isinstance(msgs, list) and msgs[0].get("id"):
-                        ext_id = msgs[0]["id"]
-                except Exception:
-                    ext_id = None
-
-                insert_message(
-                    db_path,
-                    id=str(uuid.uuid4()),
-                    tenant_id=str(pnid or "unknown"),
-                    phone=str(to),
-                    direction="outbound",
-                    text=a.get("text") if "text" in a else None,
-                    attachments_meta=a.get("template") if "template" in a else None,  # apenas para registro
-                    external_msg_id=ext_id,
-                    status="sent" if not (res or {}).get("dry_run") else None,
-                    raw_payload=(res if not (res or {}).get("dry_run") else None),
-                    created_at=iso_now(),
-                )
-
-                logger.info(
-                    "msg.out",
-                    extra={
-                        "to": mask_phone(to),
-                        "kind": kind,
-                        "has_external_id": bool(ext_id),
-                        "dry_run": bool(current_app.config.get("DRY_RUN", False)),
-                    },
-                )
-            except Exception as e:
-                logger.exception(
-                    "msg.out_error",
-                    extra={"to": mask_phone(a.get("to")), "kind": ("template" if "template" in a else "text"), "error": str(e)},
-                )
-                # mesmo com erro, seguimos para as próximas ações
+        # 4) Envia e persiste outbound (agora de forma assíncrona, com delays configuráveis)
+        _dispatch_actions_async(current_app._get_current_object(), pnid, actions)
 
         # 5) Statuses (delivery/read/failed) — log + atualizar tabela
         try:
