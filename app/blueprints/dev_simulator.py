@@ -1,19 +1,28 @@
 # app/blueprints/dev_simulator.py
-from flask import Blueprint, render_template, request, jsonify, current_app
-from typing import List, Dict, Any
-from datetime import datetime
+from __future__ import annotations
+
+import json
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from flask import Blueprint, Response, current_app, jsonify, render_template, request
+
 from app.flows.normalizer import normalize_incoming
 from app.tenants import registry
 from app.flows.router import decide_responses
+from app.models import list_messages_by_phone
 
 dev_simulator = Blueprint("dev_simulator", __name__, template_folder=None)
 
-# Histórico em memória (dev only)
-# cada item: {id, ts, inbound: {...}, actions: [...], source}
-_history: List[Dict[str, Any]] = []
+_history: List[Dict[str, Any]] = []  # legado (mantido para testes rápidos)
 
 
-def _get_phone_number_id_from_payload(body: Dict[str, Any]) -> str | None:
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _get_pnid_from_payload(body: Dict[str, Any]) -> Optional[str]:
     try:
         entry0 = (body.get("entry") or [None])[0] or {}
         change0 = (entry0.get("changes") or [None])[0] or {}
@@ -26,27 +35,23 @@ def _get_phone_number_id_from_payload(body: Dict[str, Any]) -> str | None:
 
 @dev_simulator.get("/dev/simchat")
 def simchat_page():
-    """Página com o formulário simples e a área de chat."""
+    # NÃO carrega histórico nem conecta automaticamente — o front cuida disso
     return render_template("dev_simchat.html")
 
 
 @dev_simulator.post("/dev/simulate")
 def run_simulation():
     """
-    Espera JSON com EITHER:
-    - um payload completo (igual ao webhook) no body
-    OR
-    - um json simples: {"phone_number_id": "...", "from": "...", "text": "..."}
+    Simula a automação SEM chamar o webhook real.
+    Aceita:
+      - body no formato da Meta (com entry/changes/...)
+      - ou { "phone_number_id": "...", "from": "55...", "text": "..." }
+    Retorna as 'actions' que seriam geradas.
     """
     body = request.get_json(silent=True) or {}
-    # Se body já contém mensagens no formato do webhook -> usa direto
     if "entry" in body:
         payload = body
     else:
-        # Constrói payload simples
-        phone_number_id = body.get("phone_number_id") or request.form.get("phone_number_id")
-        from_num = body.get("from") or request.form.get("from")
-        text = body.get("text") or request.form.get("text", "")
         payload = {
             "entry": [
                 {
@@ -54,8 +59,14 @@ def run_simulation():
                         {
                             "value": {
                                 "messaging_product": "whatsapp",
-                                "messages": [{"from": from_num, "type": "text", "text": {"body": text}}],
-                                "metadata": {"phone_number_id": phone_number_id},
+                                "messages": [
+                                    {
+                                        "from": body.get("from"),
+                                        "type": "text",
+                                        "text": {"body": body.get("text", "")},
+                                    }
+                                ],
+                                "metadata": {"phone_number_id": body.get("phone_number_id")},
                             }
                         }
                     ]
@@ -63,52 +74,94 @@ def run_simulation():
             ]
         }
 
-    # Normaliza o payload para eventos (usa sua função existente)
     events = normalize_incoming(payload)
+    pnid = _get_pnid_from_payload(payload)
 
-    # Descobre phone_number_id (tenta extrair do payload)
-    pnid = _get_phone_number_id_from_payload(payload)
-
-    # [NOVO] — cria/atualiza a sessão como o webhook faz (para que estados funcionem)
-    sm = current_app.config.get("SESSION_MANAGER")
-    if sm and pnid:
-        for e in events:
-            if e.get("type") == "text":
-                frm = str(e.get("from") or "")
-                if frm:
-                    # assinatura com keywords funciona nas duas versões do SessionManager
-                    sm.touch(phone=frm, tenant=str(pnid), default_state="idle")
-
-    # Resolve tenant
     tenant_fn = registry.resolve(pnid, current_app.config) if pnid else None
-
     if tenant_fn:
-        # chama a automação do tenant (pode gerar ações)
         actions = tenant_fn(events, settings=current_app.config)
         source = "tenant"
     else:
-        # fallback para respostas simples / router
         actions = decide_responses(events)
         source = "default"
 
-    # Armazena no histórico (dev)
-    entry = {
-        "id": len(_history) + 1,
-        "ts": datetime.utcnow().isoformat() + "Z",
-        "inbound_payload": payload,
-        "events": events,
-        "source": source,
-        "actions": actions,
-    }
-    _history.append(entry)
-
-    # Retorna ações e id do histórico
-    return jsonify({"ok": True, "entry_id": entry["id"], "source": source, "actions": actions})
+    # guardamos no histórico dev só para debug/inspeção
+    _history.append(
+        {
+            "id": len(_history) + 1,
+            "ts": _now_iso(),
+            "inbound_payload": payload,
+            "events": events,
+            "source": source,
+            "actions": actions,
+        }
+    )
+    return jsonify({"ok": True, "source": source, "actions": actions})
 
 
 @dev_simulator.get("/dev/history")
 def get_history():
-    """Retorna o histórico (mais recente primeiro)."""
-    # limitar para evitar payload gigantesco (dev)
     recent = list(reversed(_history))[:200]
     return jsonify({"ok": True, "count": len(_history), "recent": recent})
+
+
+# --------- API de mensagens para a UI (histórico) ---------
+@dev_simulator.get("/dev/messages")
+def list_messages_api():
+    """
+    Retorna mensagens do SQLite para o par (pnid, phone).
+    Nota: o storage expõe busca por phone DESC; aqui filtramos por tenant e devolvemos ASC.
+    """
+    pnid = request.args.get("pnid", "").strip()
+    phone = request.args.get("phone", "").strip()
+    limit = int(request.args.get("limit", "150") or 150)
+
+    if not phone:
+        return jsonify({"messages": []})
+
+    db_path = current_app.config.get("SQLITE_PATH", "data/app.db")
+    rows = list_messages_by_phone(db_path, phone, limit=limit)  # DESC
+    # filtra por tenant se informado
+    if pnid:
+        rows = [r for r in rows if str(r.get("tenant_id")) == str(pnid)]
+    # devolve ASC
+    rows = list(reversed(rows))
+    return jsonify({"messages": rows})
+
+
+# --------- Stream "tipo SSE" por polling leve ----------
+@dev_simulator.get("/dev/stream")
+def stream_messages():
+    """
+    Stream server-sent events simples, por polling.
+    Envia lotes de mensagens novas (baseado em created_at) para o par (pnid, phone).
+    Não envia histórico: só o que chegar DEPOIS da conexão.
+    """
+    pnid = request.args.get("pnid", "").strip()
+    phone = request.args.get("phone", "").strip()
+    if not phone:
+        return Response("missing phone", status=400)
+
+    db_path = current_app.config.get("SQLITE_PATH", "data/app.db")
+    last_seen = _now_iso()  # só o que chegar depois da conexão
+
+    def gen():
+        nonlocal last_seen
+        yield "retry: 1500\n\n"  # sugere reconexão de 1.5s
+        while True:
+            try:
+                rows = list_messages_by_phone(db_path, phone, limit=200)  # DESC
+                if pnid:
+                    rows = [r for r in rows if str(r.get("tenant_id")) == str(pnid)]
+                rows = list(reversed(rows))  # ASC
+
+                fresh = [r for r in rows if r.get("created_at", "") > last_seen]
+                if fresh:
+                    last_seen = fresh[-1]["created_at"]
+                    yield f"data: {json.dumps(fresh, ensure_ascii=False)}\n\n"
+            except Exception:
+                # em caso de erro silencioso, evita travar o gerador
+                pass
+            time.sleep(0.8)
+
+    return Response(gen(), mimetype="text/event-stream")

@@ -12,6 +12,7 @@ from app.flows.normalizer import normalize_incoming
 from app.flows.router import decide_responses, mask_phone
 from app.wa.client import send_text, send_template
 from app.tenants import registry
+from app.realtime import broadcaster, channel_key
 
 from app.models import (
     insert_message,
@@ -32,11 +33,14 @@ def _get_phone_number_id_from_payload(body: dict) -> str | None:
         return metadata.get("phone_number_id")
     except Exception:
         return None
-    
+
+def _pnid_from_value(value: dict) -> str | None:
+    try:
+        return ((value.get("metadata") or {}).get("phone_number_id")) or None
+    except Exception:
+        return None
+
 def _extract_contact_names(body: dict) -> dict[str, str]:
-    """
-    Varre o payload e retorna { wa_id: profile_name } para contatos presentes.
-    """
     mapping: dict[str, str] = {}
     try:
         entry0 = (body.get("entry") or [None])[0] or {}
@@ -51,7 +55,7 @@ def _extract_contact_names(body: dict) -> dict[str, str]:
         pass
     return mapping
 
-def _log_statuses_and_persist(change_value: dict, db_path: str) -> None:
+def _log_statuses_and_persist(change_value: dict, db_path: str, tenant_id: str | None) -> None:
     statuses = change_value.get("statuses")
     if not isinstance(statuses, list):
         return
@@ -92,15 +96,26 @@ def _log_statuses_and_persist(change_value: dict, db_path: str) -> None:
                     extra={**base, "conversation": st.get("conversation"), "pricing": st.get("pricing")},
                 )
 
+        # --- NOVO: publica status no canal SSE para a UI atualizar ticks ---
+        try:
+            ch = channel_key(str(tenant_id or _pnid_from_value(change_value) or "unknown"),
+                             str(st.get("recipient_id") or ""))
+            broadcaster.publish(ch, {
+                "type": "status",
+                "external_msg_id": msg_id,
+                "status": st.get("status"),
+                "timestamp": st.get("timestamp"),
+            })
+        except Exception:
+            pass
+
 # -----------------------
-# Envio assíncrono com delay
+# Envio assíncrono com delay + broadcast SSE
 # -----------------------
 def _dispatch_actions_async(app, pnid: str | None, actions: list[dict]) -> None:
     """
-    Processa ações em uma thread separada, respeitando:
-      - delay por ação (a.get("delay"))
-      - delay global OUTGOING_DELAY_SECONDS (entre mensagens, quando não há delay por ação)
-    Persiste as mensagens outbound como o handler original fazia.
+    Processa ações em uma thread separada, respeitando delays e publicando cada
+    mensagem outbound no canal SSE, além de persistir no SQLite.
     """
     def _worker():
         with app.app_context():
@@ -115,9 +130,7 @@ def _dispatch_actions_async(app, pnid: str | None, actions: list[dict]) -> None:
                 if not to:
                     continue
 
-                # Calcula o delay ANTES desta mensagem:
-                # 1) delay específico da ação (se definido)
-                # 2) senão, aplica delay global apenas a partir da 2ª mensagem
+                # delay antes desta mensagem
                 try:
                     delay_s = a.get("delay")
                     delay_s = int(delay_s) if delay_s is not None else (default_delay if idx > 0 else 0)
@@ -136,7 +149,7 @@ def _dispatch_actions_async(app, pnid: str | None, actions: list[dict]) -> None:
                         res = send_text(to, a.get("text", ""), phone_number_id=pnid)
                         kind = "text"
 
-                    # tenta capturar wamid do retorno real
+                    # tenta capturar wamid
                     ext_id = None
                     try:
                         msgs = (res or {}).get("messages") or []
@@ -158,6 +171,23 @@ def _dispatch_actions_async(app, pnid: str | None, actions: list[dict]) -> None:
                         raw_payload=(res if not (res or {}).get("dry_run") else None),
                         created_at=iso_now(),
                     )
+
+                    # --- NOVO: publica outbound imediatamente no SSE ---
+                    try:
+                        ch = channel_key(str(pnid or "unknown"), str(to))
+                        payload = {
+                            "type": "message",
+                            "direction": "outbound",
+                            "msg_type": kind,
+                            "text": (a.get("text") if kind == "text" else None),
+                            "template": (a.get("template") if kind == "template" else None),
+                            "external_msg_id": ext_id,
+                            "status": "sent" if not (res or {}).get("dry_run") else None,
+                            "created_at": iso_now(),
+                        }
+                        broadcaster.publish(ch, payload)
+                    except Exception:
+                        pass
 
                     logger.info(
                         "msg.out",
@@ -213,36 +243,34 @@ def receive():
         logger.debug("webhook.events", extra={"count": len(events), "preview": events[:3]})
 
         # 2) Resolve tenant
-        pnid = _get_phone_number_id_from_payload(body)
+        pnid = _get_phone_number_id_from_payload(body) or "unknown"
         tenant_respond = registry.resolve(pnid, current_app.config)
 
         # Extrai nomes de contatos (se houver)
         name_map = _extract_contact_names(body)
 
-        # 2.1 Persistir inbound (apenas mensagens de usuário; statuses são tratados depois)
+        # 2.1 Persistir inbound (text) + publicar no SSE
         for e in events:
             if e.get("type") == "text":
-                # cria/atualiza sessão
                 if sm:
                     sm.touch(phone=str(e.get("from","")), tenant=str(pnid or "unknown"))
 
                     to = str(e.get("from",""))
                     meta_name = name_map.get(to)
                     if meta_name:
-                        # tenta assinatura nova (tenant+phone); cai para a antiga (phone) se necessário
                         try:
                             sess = sm.get(tenant=str(pnid or "unknown"), phone=to)
                         except TypeError:
                             sess = sm.get(to) if hasattr(sm, "get") else None
 
                         ctx = (sess or {}).get("context") or {}
-                        if not ctx.get("nome"):  # não sobrescreve nome já confirmado pelo usuário
+                        if not ctx.get("nome"):
                             try:
                                 sm.set_context(tenant=str(pnid or "unknown"), phone=to,
                                                updates={"profile_name": meta_name})
                             except TypeError:
                                 sm.set_context(to, {"profile_name": meta_name})
-                                
+
                 # grava inbound
                 insert_message(
                     db_path,
@@ -254,9 +282,22 @@ def receive():
                     raw_payload=None,
                     status=None,
                     attachments_meta=None,
-                    external_msg_id=None,  # inbound geralmente não traz wamid utilizável aqui
+                    external_msg_id=None,
                     created_at=iso_now(),
                 )
+
+                # --- NOVO: publica inbound no SSE ---
+                try:
+                    ch = channel_key(str(pnid or "unknown"), str(e.get("from","")))
+                    broadcaster.publish(ch, {
+                        "type": "message",
+                        "direction": "inbound",
+                        "msg_type": "text",
+                        "text": str(e.get("text") or ""),
+                        "created_at": iso_now(),
+                    })
+                except Exception:
+                    pass
 
         # 3) Executa automação
         if tenant_respond:
@@ -277,15 +318,15 @@ def receive():
             },
         )
 
-        # 4) Envia e persiste outbound (agora de forma assíncrona, com delays configuráveis)
+        # 4) Envia e persiste outbound (assíncrono, com delay) + publica SSE
         _dispatch_actions_async(current_app._get_current_object(), pnid, actions)
 
-        # 5) Statuses (delivery/read/failed) — log + atualizar tabela
+        # 5) Statuses — log + atualizar tabela + publicar SSE
         try:
             entry0 = (body.get("entry") or [None])[0] or {}
             change0 = (entry0.get("changes") or [None])[0] or {}
             value = change0.get("value") or {}
-            _log_statuses_and_persist(value, db_path)
+            _log_statuses_and_persist(value, db_path, pnid)
         except Exception:
             pass
 

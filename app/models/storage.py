@@ -8,6 +8,13 @@ from contextlib import contextmanager
 from typing import Any, Dict, Iterable, List, Optional
 from datetime import datetime, timezone
 
+# NOVO: para publicar em tempo real
+try:
+    from app.realtime import broadcaster, channel_key
+except Exception:
+    broadcaster = None
+    channel_key = None
+
 # ---------- helpers ----------
 
 def iso_now() -> str:
@@ -79,6 +86,35 @@ def ensure_db(db_path: str) -> None:
         for ddl in (DDL_MESSAGES, DDL_PROCESSED, DDL_BOOKINGS):
             cur.executescript(ddl)
 
+# ---------- helpers realtime ----------
+
+def _publish_message_event(tenant_id: str, phone: str, *, direction: str,
+                           text: Optional[str], attachments_meta: Optional[Dict[str, Any]],
+                           external_msg_id: Optional[str], status: Optional[str], created_at: str) -> None:
+    if not broadcaster or not channel_key:
+        return
+    payload = {
+        "type": "message",
+        "direction": direction,                       # inbound | outbound
+        "msg_type": ("template" if attachments_meta else "text"),
+        "text": text,
+        "template": attachments_meta,
+        "external_msg_id": external_msg_id,
+        "status": status,
+        "created_at": created_at,
+    }
+    broadcaster.publish(channel_key(str(tenant_id), str(phone)), payload)
+
+def _publish_status_event(tenant_id: str, phone: str, external_msg_id: str, status: str) -> None:
+    if not broadcaster or not channel_key:
+        return
+    payload = {
+        "type": "status",
+        "external_msg_id": external_msg_id,
+        "status": status,
+    }
+    broadcaster.publish(channel_key(str(tenant_id), str(phone)), payload)
+
 # ---------- messages ----------
 
 def insert_message(
@@ -107,21 +143,32 @@ def insert_message(
                 phone,
                 direction,
                 text,
-                json.dumps(attachments_meta) if attachments_meta else None,
+                json.dumps(attachments_meta, ensure_ascii=False) if attachments_meta else None,
                 external_msg_id,
                 status,
                 json.dumps(raw_payload, ensure_ascii=False) if raw_payload else None,
                 created_at,
             ),
         )
+    # NOVO: publica no SSE
+    _publish_message_event(tenant_id, phone,
+                           direction=direction, text=text, attachments_meta=attachments_meta,
+                           external_msg_id=external_msg_id, status=status, created_at=created_at)
 
 def update_message_status_by_external_id(db_path: str, external_msg_id: str, status: str) -> int:
     with get_conn(db_path) as conn:
+        # pega dados para publicar no canal certo
+        row = conn.execute(
+            "SELECT tenant_id, phone FROM messages WHERE external_msg_id=?",
+            (external_msg_id,),
+        ).fetchone()
         cur = conn.execute(
             "UPDATE messages SET status=? WHERE external_msg_id=?",
             (status, external_msg_id),
         )
-        return cur.rowcount
+    if row:
+        _publish_status_event(row["tenant_id"], row["phone"], external_msg_id, status)
+    return cur.rowcount
 
 def list_messages_by_phone(db_path: str, phone: str, *, limit: int = 50, before: Optional[str] = None) -> List[Dict[str, Any]]:
     q = "SELECT * FROM messages WHERE phone=?"
@@ -197,7 +244,7 @@ def insert_booking(
                 status,
                 created_by,
                 external_calendar_id,
-                json.dumps(meta) if meta else None,
+                json.dumps(meta, ensure_ascii=False) if meta else None,
                 now,
                 now,
             ),

@@ -4,184 +4,240 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Simulador WhatsApp - Dev</title>
+  <title>Simulador WhatsApp (DEV)</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 12px; background:#f7f7f7; }
-    .container { max-width:900px; margin:0 auto; }
-    .controls { display:flex; gap:8px; margin-bottom:10px; }
-    .controls input { padding:8px; flex:1; }
-    .controls button { padding:8px 12px; }
-    .chat { background:#fff; border:1px solid #ddd; padding:12px; height:60vh; overflow:auto; }
-    .bubble { max-width:70%; padding:10px; margin:8px 0; border-radius:10px; }
-    .in { background:#eee; align-self:flex-start; }
-    .out { background:#0b76ff; color:white; align-self:flex-end; }
-    .row { display:flex; flex-direction:column; }
-    .meta { font-size:11px; color:#666; margin-top:6px; }
-    .footer { margin-top:8px; display:flex; gap:8px; }
-    .small { font-size:13px; color:#444; }
-    .history-item { border-top:1px dashed #eee; padding-top:8px; margin-top:8px; }
+    :root{
+      --green:#075E54;
+      --bg:#ECE5DD;
+      --in:#FFFFFF;
+      --out:#DCF8C6;
+      --muted:#667781;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,Helvetica,sans-serif}
+    .topbar{background:var(--green);color:#fff;padding:10px 12px;display:flex;gap:12px;align-items:center}
+    .topbar h1{font-size:16px;margin:0 10px 0 0;font-weight:700}
+    .topbar input{height:32px;border-radius:6px;border:0;padding:0 10px;min-width:280px;outline:none}
+    .btn{height:32px;border-radius:8px;border:0;padding:0 12px;font-weight:600;cursor:pointer}
+    .btn.gray{background:#e7edf3}
+    .btn.green{background:#08c19d;color:#fff}
+    .btn.red{background:#ef4444;color:#fff}
+    .hint{background:#0f5132;color:#d1e7dd;padding:6px 12px;font-size:12px}
+    .wrap{height:calc(100vh - 110px);display:flex;flex-direction:column}
+    .chat{flex:1;overflow:auto;padding:18px 24px}
+    .row{display:flex;margin:10px 0;width:100%}
+    .row.in{justify-content:flex-start}
+    .row.out{justify-content:flex-end}
+    .bubble{
+      max-width:min(76%,820px);
+      padding:10px 36px 18px 12px;       /* espaço p/ timestamp dentro */
+      border-radius:10px;
+      position:relative;
+      line-height:1.35;
+      white-space:pre-wrap;word-wrap:break-word
+    }
+    .in .bubble{background:var(--in)}
+    .out .bubble{background:var(--out)}
+    .ts{position:absolute;right:8px;bottom:6px;color:var(--muted);font-size:11px}
+    .footer{display:flex;gap:10px;align-items:center;padding:10px;background:#f3f3f3;border-top:1px solid #e7e7e7}
+    #msg{flex:1;height:44px;border-radius:22px;border:2px solid #cfd4d9;padding:0 16px;outline:none;background:#fff}
+    .btn.round{height:44px;border-radius:22px;padding:0 16px}
+    .status-pill{
+      background:#ffffff22;border:1px solid #ffffff55;color:#fff;border-radius:999px;
+      padding:4px 10px;font-size:12px
+    }
+    .status-pill.off{background:#00000020;border-color:#00000026}
   </style>
 </head>
 <body>
-  <div class="container">
-    <h2>Simulador WhatsApp (DEV)</h2>
+  <div class="topbar">
+    <h1>Simulador WhatsApp (DEV)</h1>
+    <input id="pnid" placeholder="Phone Number ID (tenant)" value="222222222222222" />
+    <input id="phone" placeholder="WhatsApp do usuário" value="5561999999999" />
+    <button id="btnConnect" class="btn gray">Conectar</button>
+    <button id="btnHistory" class="btn gray">Carregar histórico</button>
+    <button id="btnClear" class="btn gray">Limpar chat</button>
+    <span id="pill" class="status-pill off">Desconectado</span>
+  </div>
 
-    <div class="small">Use para simular inbound e ver as ações que o tenant devolveria. Rota dev: <code>/dev/simulate</code></div>
+  <div class="hint">
+    Tudo que o <strong>webhook</strong> receber (inbound/status) e tudo que for <strong>enviado</strong> (outbound) aparece aqui em tempo real. O delay entre mensagens é respeitado visualmente.
+  </div>
 
-    <div style="margin-top:10px" class="row">
-      <div class="controls">
-        <input id="phone_number_id" placeholder="Phone Number ID (tenant)" value="222222222222222" />
-        <input id="from_number" placeholder="From (usuário)" value="5561999999999" />
-      </div>
+  <div class="wrap">
+    <div id="chat" class="chat" aria-live="polite"></div>
 
-      <input id="text_input" placeholder="Digite a mensagem..." style="padding:8px; margin-bottom:8px" onkeydown="if(event.key==='Enter'){sendSimulate()}"/>
-
-      <div class="footer">
-        <button onclick="sendSimulate()">Simular inbound</button>
-        <button onclick="sendToWebhook()">Enviar direto para / (webhook)</button>
-        <button onclick="fetchHistory()">Carregar histórico</button>
-        <button onclick="clearChat()">Limpar chat</button>
-      </div>
-
-      <div id="chat" class="chat" aria-live="polite"></div>
-
-      <h4>Histórico (dev)</h4>
-      <div id="history"></div>
+    <div class="footer">
+      <input id="msg" placeholder="Digite a mensagem…" />
+      <button id="btnSend" class="btn round green">Enviar</button>
+      <button id="btnSimulate" class="btn round green" title="Trocar para modo simulado (sem webhook)">Simular (sem webhook)</button>
     </div>
   </div>
 
   <script>
-    function el(tag, cls, text) {
-      const d = document.createElement(tag);
-      if (cls) d.className = cls;
-      if (text !== undefined) d.textContent = text;
-      return d;
-    }
+    // ---------------- State ----------------
+    let es = null;                 // EventSource
+    let isConnected = false;
+    const seenIds = new Set();     // dedupe por ID do banco
+    const chat = document.getElementById('chat');
+    const pnidEl = document.getElementById('pnid');
+    const phoneEl = document.getElementById('phone');
+    const msgEl = document.getElementById('msg');
+    const pill = document.getElementById('pill');
+    const btnConnect = document.getElementById('btnConnect');
 
-    function pushBubble(dir, text, meta) {
-      const chat = document.getElementById('chat');
-      const wrapper = el('div', 'bubble ' + (dir === 'in' ? 'in' : 'out'));
-      wrapper.innerHTML = '<div>' + (text || '') + '</div>';
-      const metaDiv = el('div', 'meta', (meta || ''));
-      wrapper.appendChild(metaDiv);
-      const outer = el('div');
-      outer.style.display = 'flex';
-      outer.style.justifyContent = dir === 'in' ? 'flex-start' : 'flex-end';
-      outer.appendChild(wrapper);
-      chat.appendChild(outer);
-      chat.scrollTop = chat.scrollHeight;
-    }
-
-    // NOVO: limpa o campo e mantém foco para a próxima digitação
-    function clearInput() {
-      const i = document.getElementById('text_input');
-      if (i) { i.value = ''; i.focus(); }
-    }
-
-    async function sendSimulate() {
-      const phone_number_id = document.getElementById('phone_number_id').value.trim();
-      const from_number = document.getElementById('from_number').value.trim();
-      const inputEl = document.getElementById('text_input');
-      const text = inputEl.value.trim();
-      if (!text) return alert('Digite algo.');
-
-      // mostra inbound local
-      pushBubble('in', text, 'from: ' + from_number);
-
-      // limpa o campo para a próxima mensagem (NOVO)
-      clearInput();
-
-      const payload = { phone_number_id, from: from_number, text };
-
+    function fmtTime(iso) {
       try {
-        const res = await fetch('/dev/simulate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          pushBubble('out', 'Erro: resposta inválida', '');
-          return;
-        }
-        const actions = data.actions || [];
-        if (actions.length === 0) {
-          pushBubble('out', '(nenhuma ação retornada)', 'source: ' + data.source);
-        } else {
-          for (const a of actions) {
-            const txt = (a.text && (typeof a.text === 'string' ? a.text : JSON.stringify(a.text))) ||
-                        (a.template && JSON.stringify(a.template)) ||
-                        JSON.stringify(a);
-            pushBubble('out', txt, 'to: ' + (a.to || '(unknown)'));
-          }
-        }
-      } catch (err) {
-        pushBubble('out', 'Erro ao chamar /dev/simulate: ' + err, '');
-      }
+        const d = new Date(iso);
+        return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      } catch { return ''; }
+    }
+    function scrollBottom(){ chat.scrollTop = chat.scrollHeight; }
+
+    function bubble(dir, text, ts) {
+      const row = document.createElement('div'); row.className='row '+dir;
+      const b = document.createElement('div'); b.className='bubble';
+      b.textContent = text || '';
+      const t = document.createElement('div'); t.className='ts'; t.textContent = fmtTime(ts);
+      b.appendChild(t); row.appendChild(b); chat.appendChild(row); scrollBottom();
     }
 
-    async function sendToWebhook() {
-      // envia o payload direto para / (webhook) como se fosse a meta
-      const phone_number_id = document.getElementById('phone_number_id').value.trim();
-      const from_number = document.getElementById('from_number').value.trim();
-      const inputEl = document.getElementById('text_input');
-      const text = inputEl.value.trim();
-      if (!text) return alert('Digite algo.');
+    function renderMessage(m){
+      if (!m || !m.id) return;
+      if (seenIds.has(m.id)) return;   // evita duplicatas
+      seenIds.add(m.id);
 
-      // limpa logo para a próxima digitação (NOVO)
-      clearInput();
+      const dir = m.direction === 'inbound' ? 'in' : 'out';
+      const text = m.text || (m.attachments_meta ? JSON.stringify(m.attachments_meta) : '(sem conteúdo)');
+      bubble(dir, text, m.created_at);
+    }
 
-      const payload = {
-        entry: [{
-          changes: [{
-            value: {
-              messaging_product: 'whatsapp',
-              messages: [{ from: from_number, type: 'text', text: { body: text } }],
-              metadata: { phone_number_id }
-            }
-          }]
-        }]
+    // ---------------- Stream (SSE) ----------------
+    function connect() {
+      if (isConnected) return;
+      const pnid = encodeURIComponent(pnidEl.value.trim());
+      const phone = encodeURIComponent(phoneEl.value.trim());
+      if (!pnid || !phone) { alert('Informe PNID e telefone.'); return; }
+
+      // fecha anterior se houver
+      if (es) { try { es.close(); } catch {} es = null; }
+
+      es = new EventSource(`/dev/stream?pnid=${pnid}&phone=${phone}`);
+      es.onopen = () => {
+        isConnected = true;
+        btnConnect.textContent = 'Desconectar';
+        btnConnect.classList.remove('gray'); btnConnect.classList.add('red');
+        pill.textContent = 'Conectado'; pill.classList.remove('off');
       };
-
-      try {
-        const res = await fetch('/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const textResp = await res.text();
-        pushBubble('out', 'POST / enviado (verifique logs). Resposta: ' + textResp.slice(0, 200), '');
-      } catch (err) {
-        pushBubble('out', 'Erro enviando para /: ' + err, '');
-      }
+      es.onerror = () => {
+        disconnect(); // cai para estado desconectado
+      };
+      es.onmessage = (ev) => {
+        try {
+          const payload = JSON.parse(ev.data);
+          if (Array.isArray(payload)) {
+            payload.forEach(renderMessage);
+          }
+        } catch { /* ignore */ }
+      };
     }
+    function disconnect() {
+      if (es) try { es.close(); } catch {}
+      es = null; isConnected = false;
+      btnConnect.textContent = 'Conectar';
+      btnConnect.classList.remove('red'); btnConnect.classList.add('gray');
+      pill.textContent = 'Desconectado'; pill.classList.add('off');
+    }
+    btnConnect.addEventListener('click', () => isConnected ? disconnect() : connect());
 
-    async function fetchHistory() {
-      try {
-        const res = await fetch('/dev/history');
-        const data = await res.json();
-        const container = document.getElementById('history');
-        container.innerHTML = '';
-        if (!data.ok) { container.innerText = 'erro ao carregar histórico'; return; }
-        for (const it of data.recent) {
-          const div = document.createElement('div');
-          div.className = 'history-item';
-          div.innerHTML = '<div><strong>#' + it.id + '</strong> - ' + it.ts + '</div>' +
-                          '<div class="small">inbound: ' + JSON.stringify(it.inbound_payload) + '</div>' +
-                          '<div class="small">actions: ' + JSON.stringify(it.actions) + '</div>';
-          container.appendChild(div);
+    // ---------------- Histórico ----------------
+    async function loadHistory() {
+      const pnid = pnidEl.value.trim();
+      const phone = phoneEl.value.trim();
+      if (!pnid || !phone) { alert('Informe PNID e telefone.'); return; }
+
+      // limpa antes de carregar — não carrega automaticamente na abertura
+      chat.innerHTML = ''; seenIds.clear();
+
+      const res = await fetch(`/dev/messages?pnid=${encodeURIComponent(pnid)}&phone=${encodeURIComponent(phone)}&limit=300`, {cache:'no-store'});
+      const data = await res.json();
+      const messages = (data.messages || []).sort((a,b)=> (a.created_at>b.created_at?1:-1));
+      messages.forEach(renderMessage);
+    }
+    document.getElementById('btnHistory').addEventListener('click', loadHistory);
+
+    // ---------------- Limpar ----------------
+    document.getElementById('btnClear').addEventListener('click', () => {
+      chat.innerHTML = ''; seenIds.clear(); msgEl.focus();
+    });
+
+    // ---------------- Enviar ----------------
+    async function handleSend() {
+      const text = msgEl.value.trim();
+      if (!text) return;
+      const pnid = pnidEl.value.trim();
+      const phone = phoneEl.value.trim();
+      if (!pnid || !phone) { alert('Informe PNID e telefone.'); return; }
+      msgEl.value = '';
+
+      if (isConnected) {
+        // Webhook real: NÃO ecoa localmente; o SSE desenhará do banco
+        const payload = {
+          entry:[{changes:[{value:{
+            messaging_product:'whatsapp',
+            messages:[{from: phone, type:'text', text:{body:text}}],
+            metadata:{phone_number_id: pnid}
+          }}]}]
+        };
+        try {
+          await fetch('/', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        } catch (e) {
+          alert('Falha ao enviar para o webhook: '+e);
         }
-      } catch (err) {
-        document.getElementById('history').innerText = 'Erro: ' + err;
+      } else {
+        // Modo simulado: ecoa inbound e pede ações ao /dev/simulate
+        bubble('in', text, new Date().toISOString());
+        try {
+          const res = await fetch('/dev/simulate', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({phone_number_id: pnid, from: phone, text})
+          });
+          const data = await res.json();
+          const actions = data.actions || [];
+          // Respeita delay por ação (a.delay) OU aplica 5s entre mensagens a partir da 2ª
+          let acc = 0;
+          actions.forEach((a, idx) => {
+            const d = (Number(a.delay) || (idx>0?5:0)) * 1000;
+            acc += d;
+            setTimeout(()=>{
+              if (a.text) bubble('out', a.text, new Date().toISOString());
+              else if (a.template) bubble('out', JSON.stringify(a.template), new Date().toISOString());
+            }, acc);
+          });
+        } catch (e) {
+          alert('Falha ao simular: '+e);
+        }
       }
     }
+    document.getElementById('btnSend').addEventListener('click', handleSend);
 
-    function clearChat() {
-      document.getElementById('chat').innerHTML = '';
-      // mantém o foco no input após limpar o chat (conveniência)
-      const i = document.getElementById('text_input');
-      if (i) i.focus();
-    }
+    // ---------------- Modo simulado (apenas alterna o modo) ----------------
+    document.getElementById('btnSimulate').addEventListener('click', () => {
+      // apenas garante que está desconectado; envio é sempre pelo botão Enviar
+      disconnect();
+      msgEl.focus();
+    });
+
+    // UX: Enter envia; Shift+Enter quebra linha
+    msgEl.addEventListener('keydown', (e)=>{
+      if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    });
+
+    // ---------------- Iniciar já conectado ----------------
+    window.addEventListener('load', () => {
+      if (pnidEl.value.trim() && phoneEl.value.trim()) connect();
+      msgEl.focus();
+    });
   </script>
 </body>
 </html>
