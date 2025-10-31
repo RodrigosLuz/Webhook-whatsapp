@@ -1,3 +1,4 @@
+/* ===== DESKTOP (padrão): IDÊNTICO ao seu CSS original ===== */
 :root{
   --green:#075E54;
   --bg:#ECE5DD;
@@ -132,4 +133,73 @@ body{
 .status-pill.off{
   background:#00000020;
   border-color:#00000026
+}
+
+/* ===== MOBILE / TABLET: APENAS OVERRIDES ===== */
+@media (max-width: 1024px){
+  .topbar{ flex-wrap:wrap; row-gap:8px; }
+  .topbar h1{ flex:1 1 100%; margin:0 0 6px; }
+  .topbar input{
+    min-width:0;
+    flex:1 1 320px;
+    width:100%;
+  }
+  /* Botões agrupados melhor em telas médias */
+  .topbar .btn{ height:36px; }
+  .status-pill{ margin-left:auto; }
+
+  .wrap{ height:calc(100vh - 150px); }
+  .chat{ padding:14px 16px; }
+
+  #msg{ height:42px; }
+  .btn.round{ height:42px; }
+}
+
+@media (max-width: 640px){
+  .topbar input{ flex:1 1 100%; }
+  .wrap{ height:calc(100vh - 170px); }
+}
+
+/* ===== Fixar topbar e footer no MOBILE/TABLET (desktop permanece igual) ===== */
+@media (max-width: 1024px){
+  /* altura “segura” do footer (44px input + 20px padding + bordas) */
+  :root { --footer-h: 68px; }
+
+  /* Topbar sempre visível */
+  .topbar{
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+  }
+
+  /* Footer sempre visível */
+  .footer{
+    position: sticky;
+    bottom: 0;
+    z-index: 1000;
+    box-shadow: 0 -2px 8px rgba(0,0,0,.06);
+    padding-bottom: max(10px, env(safe-area-inset-bottom)); /* suporte a iOS */
+    background: #f3f3f3; /* garante a cor quando “flutua” */
+  }
+
+  /* Conteúdo rola por baixo das barras fixas */
+  .wrap{
+    height: auto;          /* deixa a página rolar naturalmente */
+    min-height: 100vh;
+  }
+  .chat{
+    padding-bottom: calc(var(--footer-h) + 16px + env(safe-area-inset-bottom));
+  }
+
+  /* ajustes já existentes p/ responsivo continuam valendo */
+  .topbar{ flex-wrap:wrap; row-gap:8px; }
+  .topbar h1{ flex:1 1 100%; margin:0 0 6px; }
+  .topbar input{ min-width:0; flex:1 1 320px; width:100%; }
+  #msg{ height:42px; }
+  .btn.round{ height:42px; }
+}
+
+@media (max-width: 640px){
+  .topbar input{ flex:1 1 100%; }
+  .wrap{ min-height: 100vh; }
 }
