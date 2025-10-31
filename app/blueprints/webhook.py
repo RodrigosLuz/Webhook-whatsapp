@@ -263,5 +263,5 @@ def receive():
         return ("", 200)
 
     except Exception as e:
-        logger.exception("webhook.handler_error", extra={"message": str(e)})
+        logger.exception("webhook.handler_error", extra={"error_message": str(e)})
         return ("", 200)

@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./:/app:delegated
+      - app-data:/app/data
+    environment:
+      - CONFIG_NAME=dev
+    command: ["python", "run.py"]   # usa flask dev run para hot-reload (dev only)
+    depends_on: []
+    
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+
+  worker:
+    build:
+      context: .
+    env_file:
+      - .env.dev
+    command: sh -c 'rq worker --with-scheduler default --url "$REDIS_URL"'
+    depends_on:
+      - redis
+
+volumes:
+  redis-data:
+  app-data:

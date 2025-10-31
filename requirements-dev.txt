@@ -8,18 +8,18 @@
 -r requirements.txt
 
 # --- Testes ---
-pytest
-pytest-cov
-requests-mock
+pytest>=8.4.2
+pytest-cov>=7.0.0
+requests-mock>=1.12.1
 
 # --- Qualidade de código ---
-black
-ruff
-mypy
-flake8
+black>=25.9.0
+ruff>=0.14.2
+mypy>=1.18.2
+flake8>=7.3.0
 
 # --- Tipagem ---
-types-requests
+types-requests>=2.32.4.20250913
 
 # --- Utilitários opcionais ---
-ipython
+ipython>=9.6.0

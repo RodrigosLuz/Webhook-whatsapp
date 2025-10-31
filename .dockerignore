@@ -1,0 +1,38 @@
+# =====================
+# Arquivos desnecessários para a imagem final
+# =====================
+
+# Python: cache e compilados
+__pycache__/
+*.pyc
+*.pyo
+
+# Git e CI/CD
+.git/
+.gitignore
+.gitlab-ci.yml
+
+# Docker e orquestração local
+.dockerignore
+docker-compose.yml
+
+# Testes e desenvolvimento
+tests/
+requirements-dev.txt
+.coveragerc
+.coverage
+
+# Documentação e arquivos locais
+README.md
+README_docker_desenvolvimento.md
+
+# VSCode ou outras IDEs
+.vscode/
+*.swp
+*.bak
+*~
+
+# Variáveis de ambiente locais (mantém só o .env gerado no pipeline)
+.env.*
+
+nginx/
